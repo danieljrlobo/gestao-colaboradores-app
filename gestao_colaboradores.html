@@ -66,6 +66,8 @@
     </div>
 
     <script>
+    window.addEventListener('load', () => {
+
         class LocalDB extends Dexie {
             constructor() {
                 super("GestaoEquipeDB");
@@ -812,35 +814,35 @@
             }
         }
 
-        window.addEventListener('load', () => {
-            window.dbService = new DBService();
-            window.modalService = new ModalService();
-            window.uiController = new UIController('main-content', '.nav-link');
+        window.dbService = new DBService();
+        window.modalService = new ModalService();
+        window.uiController = new UIController('main-content', '.nav-link');
 
-            document.getElementById('export-btn').addEventListener('click', () => window.dbService.exportData());
+        document.getElementById('export-btn').addEventListener('click', () => window.dbService.exportData());
 
-            const fileInput = document.createElement('input');
-            fileInput.type = 'file';
-            fileInput.accept = '.json';
-            fileInput.style.display = 'none';
-            fileInput.onchange = (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (event) => window.dbService.importData(event.target.result);
-                    reader.readAsText(file);
-                }
-            };
-            document.body.appendChild(fileInput);
-            document.getElementById('import-btn').addEventListener('click', () => {
-                if (confirm('Atenção: A importação irá ignorar registros com matrículas duplicadas. Deseja continuar?')) {
-                    fileInput.click();
-                }
-            });
-
-            document.getElementById('loading-overlay').style.display = 'none';
-            document.getElementById('app').classList.remove('hidden');
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.json';
+        fileInput.style.display = 'none';
+        fileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => window.dbService.importData(event.target.result);
+                reader.readAsText(file);
+            }
+        };
+        document.body.appendChild(fileInput);
+        document.getElementById('import-btn').addEventListener('click', () => {
+            if (confirm('Atenção: A importação irá ignorar registros com matrículas duplicadas. Deseja continuar?')) {
+                fileInput.click();
+            }
         });
+
+        document.getElementById('loading-overlay').style.display = 'none';
+        document.getElementById('app').classList.remove('hidden');
+
+    });
     </script>
 </body>
 </html>
