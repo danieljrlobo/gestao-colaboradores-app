@@ -79,14 +79,14 @@
                 });
             }
         }
-        const db = new LocalDB();
 
         class DBService {
-            async add(tableName, data) { return await db[tableName].add(data); }
-            async update(tableName, id, data) { return await db[tableName].update(id, data); }
-            async delete(tableName, id) { return await db[tableName].delete(id); }
-            async getAll(tableName) { return await db[tableName].toArray(); }
-            async getById(tableName, id) { return await db[tableName].get(id); }
+            constructor(db) { this.db = db; }
+            async add(tableName, data) { return await this.db[tableName].add(data); }
+            async update(tableName, id, data) { return await this.db[tableName].update(id, data); }
+            async delete(tableName, id) { return await this.db[tableName].delete(id); }
+            async getAll(tableName) { return await this.db[tableName].toArray(); }
+            async getById(tableName, id) { return await this.db[tableName].get(id); }
 
             async addStrategy(d) { return await this.add('strategies', d); }
             async updateStrategy(id, d) { return await this.update('strategies', id, d); }
@@ -158,8 +158,8 @@
                 try {
                     const data = JSON.parse(jsonData);
                     for (const tableName in data) {
-                        if (db.hasOwnProperty(tableName)) {
-                            const table = db[tableName];
+                        if (this.db.hasOwnProperty(tableName)) {
+                            const table = this.db[tableName];
                             for (const record of data[tableName]) {
                                 if (record.matricula) {
                                     const existing = await table.where('matricula').equals(record.matricula).first();
@@ -219,6 +219,7 @@
         }
 
         class DashboardView {
+            constructor(uiController) { this.uiController = uiController; }
             async render(container) {
                 container.innerHTML = this.getTemplate();
                 await this.populateKanban();
@@ -250,8 +251,8 @@
             }
 
             async populateKanban() {
-                const collaborators = await window.dbService.getAll('collaborators');
-                const leaders = await window.dbService.getAll('leaders');
+                const collaborators = await this.uiController.dbService.getAll('collaborators');
+                const leaders = await this.uiController.dbService.getAll('leaders');
                 const allPersonnel = [...collaborators, ...leaders];
 
                 allPersonnel.forEach(person => {
@@ -286,17 +287,104 @@
                     card.addEventListener('click', (e) => {
                         const id = e.currentTarget.dataset.id;
                         const type = e.currentTarget.dataset.type;
-                        window.uiController.currentView = 'team';
-                        window.uiController.renderCurrentView({ selected_id: id, selected_type: type });
+                        this.uiController.changeView('team', { selected_id: id, selected_type: type });
                     });
                 });
             }
         }
 
-        class StrategiesView { constructor() { this.draggedItem = null; } async render(container) { container.innerHTML = this.getTemplate(); const strategies = await window.dbService.getAll('strategies'); this.renderCards(strategies); this.attachEventListeners(); } getTemplate() { return ` <div class="flex justify-between items-center mb-6"><h2 class="text-3xl font-bold text-gray-800">Quadro de Estratégias</h2><button id="add-strategy-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">+ Nova Estratégia</button></div> <div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="kanban-board"> <div class="bg-gray-200 rounded-lg p-4 kanban-column" data-status="planejada"><h3 class="font-bold text-lg mb-4 text-gray-700 border-b-2 border-yellow-500 pb-2">Planejadas</h3><div class="space-y-4 min-h-[200px]" data-container="planejada"></div></div> <div class="bg-gray-200 rounded-lg p-4 kanban-column" data-status="em andamento"><h3 class="font-bold text-lg mb-4 text-gray-700 border-b-2 border-blue-500 pb-2">Em Andamento</h3><div class="space-y-4 min-h-[200px]" data-container="em andamento"></div></div> <div class="bg-gray-200 rounded-lg p-4 kanban-column" data-status="concluída"><h3 class="font-bold text-lg mb-4 text-gray-700 border-b-2 border-green-500 pb-2">Concluídas</h3><div class="space-y-4 min-h-[200px]" data-container="concluída"></div></div> </div> `; } renderCards(strategies) { document.querySelectorAll('[data-container]').forEach(c => c.innerHTML = ''); strategies.forEach(strategy => { const container = document.querySelector(`[data-container="${strategy.status}"]`); if (container) { const card = this.createCardElement(strategy); container.appendChild(card); } }); } createCardElement(strategy) { const card = document.createElement('div'); card.className = 'bg-white p-4 rounded-lg shadow-md cursor-grab transition-shadow hover:shadow-xl'; card.draggable = true; card.dataset.id = strategy.id; card.innerHTML = ` <h4 class="font-bold text-md mb-2">${strategy.title}</h4> <p class="text-gray-600 text-sm">${strategy.description}</p> <div class="text-right mt-4"> <button class="edit-strategy-btn text-blue-500 hover:text-blue-700 text-sm font-semibold" data-id="${strategy.id}">Editar</button> <button class="delete-strategy-btn text-red-500 hover:text-red-700 text-sm font-semibold ml-2" data-id="${strategy.id}">Excluir</button> </div> `; return card; } attachEventListeners() { document.getElementById('add-strategy-btn').addEventListener('click', () => this.handleAdd()); document.querySelectorAll('.edit-strategy-btn').forEach(btn => { btn.addEventListener('click', async (e) => { const strategy = await window.dbService.getById('strategies', parseInt(e.target.dataset.id)); this.handleEdit(strategy); }); }); document.querySelectorAll('.delete-strategy-btn').forEach(btn => { btn.addEventListener('click', (e) => this.handleDelete(parseInt(e.target.dataset.id))); }); this.setupDragAndDrop(); } handleAdd() { const form = this.createFormElement(); window.modalService.open({ title: 'Nova Estratégia', body: form }); form.onsubmit = async (e) => { e.preventDefault(); const formData = new FormData(form); const data = { title: formData.get('title'), description: formData.get('description'), status: 'planejada' }; await window.dbService.addStrategy(data); window.modalService.close(); }; } handleEdit(strategy) { const form = this.createFormElement(strategy); window.modalService.open({ title: 'Editar Estratégia', body: form }); form.onsubmit = async (e) => { e.preventDefault(); const formData = new FormData(form); const updatedData = { title: formData.get('title'), description: formData.get('description') }; await window.dbService.updateStrategy(strategy.id, updatedData); window.modalService.close(); }; } handleDelete(id) { window.modalService.confirm({ title: 'Excluir Estratégia', message: 'Tem certeza que deseja excluir esta estratégia? Esta ação não pode ser desfeita.', onConfirm: () => window.dbService.deleteStrategy(id) }); } createFormElement(strategy = {}) { const form = document.createElement('form'); form.innerHTML = ` <div class="space-y-4"> <div><label class="block text-sm font-medium">Título</label><input type="text" name="title" value="${strategy.title || ''}" class="input-field" required></div> <div><label class="block text-sm font-medium">Descrição</label><textarea name="description" rows="4" class="input-field" required>${strategy.description || ''}</textarea></div> <div class="text-right"><button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Salvar</button></div> </div> `; return form; } setupDragAndDrop() { const cards = document.querySelectorAll('[draggable="true"]'); const columns = document.querySelectorAll('.kanban-column'); cards.forEach(card => { card.addEventListener('dragstart', (e) => { this.draggedItem = e.target; setTimeout(() => e.target.style.opacity = '0.5', 0); }); card.addEventListener('dragend', (e) => { e.target.style.opacity = '1'; this.draggedItem = null; }); }); columns.forEach(column => { column.addEventListener('dragover', (e) => e.preventDefault()); column.addEventListener('drop', (e) => { e.preventDefault(); if (this.draggedItem) { const targetColumn = e.currentTarget; const newStatus = targetColumn.dataset.status; const cardId = parseInt(this.draggedItem.dataset.id); targetColumn.querySelector('[data-container]').appendChild(this.draggedItem); window.dbService.updateStrategy(cardId, { status: newStatus }); } }); }); } }
+        class StrategiesView {
+            constructor(uiController) {
+                this.uiController = uiController;
+                this.draggedItem = null;
+            }
+            async render(container) {
+                container.innerHTML = this.getTemplate();
+                const strategies = await this.uiController.dbService.getAll('strategies');
+                this.renderCards(strategies);
+                this.attachEventListeners();
+            }
+            getTemplate() { return ` <div class="flex justify-between items-center mb-6"><h2 class="text-3xl font-bold text-gray-800">Quadro de Estratégias</h2><button id="add-strategy-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">+ Nova Estratégia</button></div> <div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="kanban-board"> <div class="bg-gray-200 rounded-lg p-4 kanban-column" data-status="planejada"><h3 class="font-bold text-lg mb-4 text-gray-700 border-b-2 border-yellow-500 pb-2">Planejadas</h3><div class="space-y-4 min-h-[200px]" data-container="planejada"></div></div> <div class="bg-gray-200 rounded-lg p-4 kanban-column" data-status="em andamento"><h3 class="font-bold text-lg mb-4 text-gray-700 border-b-2 border-blue-500 pb-2">Em Andamento</h3><div class="space-y-4 min-h-[200px]" data-container="em andamento"></div></div> <div class="bg-gray-200 rounded-lg p-4 kanban-column" data-status="concluída"><h3 class="font-bold text-lg mb-4 text-gray-700 border-b-2 border-green-500 pb-2">Concluídas</h3><div class="space-y-4 min-h-[200px]" data-container="concluída"></div></div> </div> `; }
+            renderCards(strategies) {
+                document.querySelectorAll('[data-container]').forEach(c => c.innerHTML = '');
+                strategies.forEach(strategy => {
+                    const container = document.querySelector(`[data-container="${strategy.status}"]`);
+                    if (container) {
+                        const card = this.createCardElement(strategy);
+                        container.appendChild(card);
+                    }
+                });
+            }
+            createCardElement(strategy) { const card = document.createElement('div'); card.className = 'bg-white p-4 rounded-lg shadow-md cursor-grab transition-shadow hover:shadow-xl'; card.draggable = true; card.dataset.id = strategy.id; card.innerHTML = ` <h4 class="font-bold text-md mb-2">${strategy.title}</h4> <p class="text-gray-600 text-sm">${strategy.description}</p> <div class="text-right mt-4"> <button class="edit-strategy-btn text-blue-500 hover:text-blue-700 text-sm font-semibold" data-id="${strategy.id}">Editar</button> <button class="delete-strategy-btn text-red-500 hover:text-red-700 text-sm font-semibold ml-2" data-id="${strategy.id}">Excluir</button> </div> `; return card; }
+            attachEventListeners() {
+                document.getElementById('add-strategy-btn').addEventListener('click', () => this.handleAdd());
+                document.querySelectorAll('.edit-strategy-btn').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        const strategy = await this.uiController.dbService.getById('strategies', parseInt(e.target.dataset.id));
+                        this.handleEdit(strategy);
+                    });
+                });
+                document.querySelectorAll('.delete-strategy-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => this.handleDelete(parseInt(e.target.dataset.id)));
+                });
+                this.setupDragAndDrop();
+            }
+            handleAdd() {
+                const form = this.createFormElement();
+                this.uiController.modalService.open({ title: 'Nova Estratégia', body: form });
+                form.onsubmit = async (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(form);
+                    const data = { title: formData.get('title'), description: formData.get('description'), status: 'planejada' };
+                    await this.uiController.dbService.addStrategy(data);
+                    this.uiController.modalService.close();
+                };
+            }
+            handleEdit(strategy) {
+                const form = this.createFormElement(strategy);
+                this.uiController.modalService.open({ title: 'Editar Estratégia', body: form });
+                form.onsubmit = async (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(form);
+                    const updatedData = { title: formData.get('title'), description: formData.get('description') };
+                    await this.uiController.dbService.updateStrategy(strategy.id, updatedData);
+                    this.uiController.modalService.close();
+                };
+            }
+            handleDelete(id) {
+                this.uiController.modalService.confirm({
+                    title: 'Excluir Estratégia',
+                    message: 'Tem certeza que deseja excluir esta estratégia? Esta ação não pode ser desfeita.',
+                    onConfirm: () => this.uiController.dbService.deleteStrategy(id)
+                });
+            }
+            createFormElement(strategy = {}) { const form = document.createElement('form'); form.innerHTML = ` <div class="space-y-4"> <div><label class="block text-sm font-medium">Título</label><input type="text" name="title" value="${strategy.title || ''}" class="input-field" required></div> <div><label class="block text-sm font-medium">Descrição</label><textarea name="description" rows="4" class="input-field" required>${strategy.description || ''}</textarea></div> <div class="text-right"><button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Salvar</button></div> </div> `; return form; }
+            setupDragAndDrop() {
+                const cards = document.querySelectorAll('[draggable="true"]');
+                const columns = document.querySelectorAll('.kanban-column');
+                cards.forEach(card => {
+                    card.addEventListener('dragstart', (e) => { this.draggedItem = e.target; setTimeout(() => e.target.style.opacity = '0.5', 0); });
+                    card.addEventListener('dragend', (e) => { e.target.style.opacity = '1'; this.draggedItem = null; });
+                });
+                columns.forEach(column => {
+                    column.addEventListener('dragover', (e) => e.preventDefault());
+                    column.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        if (this.draggedItem) {
+                            const targetColumn = e.currentTarget;
+                            const newStatus = targetColumn.dataset.status;
+                            const cardId = parseInt(this.draggedItem.dataset.id);
+                            targetColumn.querySelector('[data-container]').appendChild(this.draggedItem);
+                            this.uiController.dbService.updateStrategy(cardId, { status: newStatus });
+                        }
+                    });
+                });
+            }
+        }
 
         class TeamView {
-            constructor() {
+            constructor(uiController) {
+                this.uiController = uiController;
                 this.selectedPersonId = null;
                 this.selectedPersonType = null;
                 this.performanceChart = null;
@@ -336,8 +424,8 @@
                 const container = document.getElementById('team-lists-container');
                 container.innerHTML = '';
 
-                const leaders = await window.dbService.getAll('leaders');
-                const collaborators = await window.dbService.getAll('collaborators');
+                const leaders = await this.uiController.dbService.getAll('leaders');
+                const collaborators = await this.uiController.dbService.getAll('collaborators');
 
                 const roles = {
                     "Liderança": "Líder",
@@ -384,14 +472,14 @@
                         const target = e.currentTarget;
                         this.selectedPersonId = parseInt(target.dataset.id);
                         this.selectedPersonType = target.dataset.type;
-                        this.render(document.getElementById('main-content'));
+                        this.render(this.uiController.mainContent, { selected_id: this.selectedPersonId, selected_type: this.selectedPersonType });
                     });
                 });
             }
 
             async renderPersonDetails(id, type) {
                  const detailsContainer = document.getElementById('person-details');
-                 const person = await window.dbService.getById(type === 'leader' ? 'leaders' : 'collaborators', id);
+                 const person = await this.uiController.dbService.getById(type === 'leader' ? 'leaders' : 'collaborators', id);
 
                  if (!person || !person.name) {
                      this.renderPlaceholderDetails("Registro inválido ou corrompido.");
@@ -499,6 +587,9 @@
             }
 
             attachDetailEventListeners(person, type){
+                const editBtn = document.getElementById('edit-person-btn');
+                if(editBtn) editBtn.addEventListener('click', () => this.handleEditOrAdd(person, type));
+
                 const promoteBtn = document.getElementById('promote-btn');
                 if (promoteBtn) promoteBtn.addEventListener('click', () => this.handlePromote(person, type));
 
@@ -544,26 +635,26 @@
                     </div>
                 `;
 
-                window.modalService.open({ title: `Gerenciar Performance de ${person.name}`, body: modalBody });
+                this.uiController.modalService.open({ title: `Gerenciar Performance de ${person.name}`, body: modalBody });
 
                 modalBody.querySelectorAll('.delete-record-btn').forEach(button => {
                     button.addEventListener('click', async (e) => {
                         const index = parseInt(e.target.dataset.index);
                         const newHistory = person.performanceHistory.filter((_, i) => i !== index);
-                        await window.dbService.update(type === 'leader' ? 'leaders' : 'collaborators', person.id, { performanceHistory: newHistory });
-                        window.modalService.close();
-                        this.render(document.getElementById('main-content'));
+                        await this.uiController.dbService.update(type === 'leader' ? 'leaders' : 'collaborators', person.id, { performanceHistory: newHistory });
+                        this.uiController.modalService.close();
+                        this.render(this.uiController.mainContent, { selected_id: person.id, selected_type: type });
                     });
                 });
 
                 modalBody.querySelector('#clear-history-btn').addEventListener('click', () => {
-                     window.modalService.confirm({
+                     this.uiController.modalService.confirm({
                         title: 'Zerar Histórico?',
                         message: `Tem certeza que deseja apagar todo o histórico de performance de ${person.name}? Esta ação não pode ser desfeita.`,
                         onConfirm: async () => {
-                            await window.dbService.update(type === 'leader' ? 'leaders' : 'collaborators', person.id, { performanceHistory: [] });
-                            window.modalService.close();
-                            this.render(document.getElementById('main-content'));
+                            await this.uiController.dbService.update(type === 'leader' ? 'leaders' : 'collaborators', person.id, { performanceHistory: [] });
+                            this.uiController.modalService.close();
+                            this.render(this.uiController.mainContent, { selected_id: person.id, selected_type: type });
                         }
                     });
                 });
@@ -571,32 +662,32 @@
 
             async handlePromote(person, type) {
                 if (type === 'collaborator') {
-                    await window.dbService.delete('collaborators', person.id);
+                    await this.uiController.dbService.delete('collaborators', person.id);
                     delete person.id;
-                    await window.dbService.add('leaders', {...person, role: 'Líder'});
+                    await this.uiController.dbService.add('leaders', {...person, role: 'Líder'});
                 } else {
                     const promotionMap = { "Líder": "Supervisor", "Supervisor": "Gerente", "Gerente": "Administrador" };
                     const newRole = promotionMap[person.role];
                     if(newRole) {
-                        await window.dbService.update('leaders', person.id, { role: newRole });
+                        await this.uiController.dbService.update('leaders', person.id, { role: newRole });
                     }
                 }
                 this.selectedPersonType = 'leader';
-                this.render(document.getElementById('main-content'));
+                this.render(this.uiController.mainContent, { selected_id: person.id, selected_type: 'leader' });
             }
 
             async handleDemote(person) {
-                await window.dbService.delete('leaders', person.id);
+                await this.uiController.dbService.delete('leaders', person.id);
                 delete person.id;
-                await window.dbService.add('collaborators', {...person, role: 'Colaborador', leaderId: null});
+                await this.uiController.dbService.add('collaborators', {...person, role: 'Colaborador', leaderId: null});
 
-                const formerCollaborators = await db.collaborators.where('leaderId').equals(person.id).toArray();
+                const formerCollaborators = await this.uiController.dbService.db.collaborators.where('leaderId').equals(person.id).toArray();
                 for(const collab of formerCollaborators) {
-                    await window.dbService.update('collaborators', collab.id, { leaderId: null });
+                    await this.uiController.dbService.update('collaborators', collab.id, { leaderId: null });
                 }
 
                 this.selectedPersonId = null;
-                this.render(document.getElementById('main-content'));
+                this.render(this.uiController.mainContent);
             }
 
             handleEditOrAdd(person = null, type = 'collaborator') {
@@ -622,7 +713,7 @@
                     <div class="text-right"><button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">${isEditing ? 'Salvar Alterações' : 'Adicionar Pessoa'}</button></div>
                 `;
 
-                window.modalService.open({ title: modalTitle, body: form });
+                this.uiController.modalService.open({ title: modalTitle, body: form });
 
                 form.onsubmit = async (e) => {
                     e.preventDefault();
@@ -637,31 +728,35 @@
                     };
 
                     const targetRoleType = roleOptions['Líder'].includes(data.role) ? 'leader' : 'collaborator';
+                    const dbTable = targetRoleType === 'leader' ? 'leaders' : 'collaborators';
 
                     if (isEditing) {
                         const originalType = type;
                         if (originalType === targetRoleType) {
-                            await window.dbService.update(originalType === 'leader' ? 'leaders' : 'collaborators', person.id, data);
+                            await this.uiController.dbService.update(dbTable, person.id, data);
                         } else {
-                            await window.dbService.delete(originalType === 'leader' ? 'leaders' : 'collaborators', person.id);
+                            await this.uiController.dbService.delete(originalType === 'leader' ? 'leaders' : 'collaborators', person.id);
                             delete person.id;
-                            await window.dbService.add(targetRoleType === 'leader' ? 'leaders' : 'collaborators', {...person, ...data});
+                            await this.uiController.dbService.add(dbTable, {...person, ...data});
                         }
                     } else {
-                        await window.dbService.add(targetRoleType === 'leader' ? 'leaders' : 'collaborators', data);
+                        await this.uiController.dbService.add(dbTable, data);
                     }
 
-                    window.modalService.close();
-                    this.render(document.getElementById('main-content'));
+                    this.uiController.modalService.close();
+                    this.render(this.uiController.mainContent);
                 };
             }
         }
 
         class FeedbacksView {
-            constructor() { this.COOLDOWN_DAYS = 15; }
+            constructor(uiController) {
+                this.uiController = uiController;
+                this.COOLDOWN_DAYS = 15;
+            }
             async render(container) {
-                const leaders = await window.dbService.getAll('leaders');
-                const feedbacks = await window.dbService.getAll('feedbacks');
+                const leaders = await this.uiController.dbService.getAll('leaders');
+                const feedbacks = await this.uiController.dbService.getAll('feedbacks');
                 container.innerHTML = this.getTemplate(leaders, feedbacks);
                 this.attachEventListeners(feedbacks);
             }
@@ -677,7 +772,7 @@
                 `;
             }
             getLeaderFeedbackTemplate(leader, allFeedbacks) {
-                const leaderFeedbacks = allFeedbacks.filter(f => f.leaderId === leader.id).sort((a, b) => b.date - a.date);
+                const leaderFeedbacks = allFeedbacks.filter(f => f.leaderId === leader.id).sort((a, b) => new Date(b.date) - new Date(a.date));
                 const averageRating = leaderFeedbacks.length > 0 ? (leaderFeedbacks.reduce((acc, f) => acc + f.rating, 0) / leaderFeedbacks.length).toFixed(1) : 'N/A';
                 return `
                     <div class="bg-white rounded-lg shadow-lg p-6">
@@ -735,56 +830,141 @@
                         <div class="text-right"><button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Salvar</button></div>
                     </div>
                 `;
-                window.modalService.open({ title: 'Editar Feedback', body: form });
+                this.uiController.modalService.open({ title: 'Editar Feedback', body: form });
                 form.onsubmit = async (e) => {
                     e.preventDefault();
                     const updatedText = new FormData(form).get('text');
-                    await window.dbService.updateFeedback(feedback.id, { text: updatedText });
-                    window.modalService.close();
+                    await this.uiController.dbService.updateFeedback(feedback.id, { text: updatedText });
+                    this.uiController.modalService.close();
                 };
             }
 
             handleDelete(id) {
-                window.modalService.confirm({
+                this.uiController.modalService.confirm({
                     title: 'Apagar Feedback',
                     message: 'Tem certeza que deseja apagar este feedback? Esta ação não pode ser desfeita.',
-                    onConfirm: () => window.dbService.deleteFeedback(id)
+                    onConfirm: () => this.uiController.dbService.deleteFeedback(id)
                 });
             }
 
-            async openFeedbackModal() { const leaders = await window.dbService.getAll('leaders'); const modalBody = document.createElement('div'); modalBody.innerHTML = ` <form id="feedback-form" class="space-y-4"> <div><label class="block text-sm font-medium">Selecione o Líder</label><select name="leaderId" class="input-field w-full" required><option value="">-- Escolha um líder --</option>${leaders.map(l => `<option value="${l.id}">${l.name}</option>`).join('')}</select></div> <div><label class="block text-sm font-medium">Sua Matrícula</label><div class="flex items-center"><input type="text" name="employeeId" class="input-field flex-grow" required><button type="button" id="scan-qr-btn" class="ml-2 mt-1 p-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg></button></div><div id="qr-reader" class="mt-2" style="width:100%"></div></div> <div><label class="block text-sm font-medium">Avaliação</label><div id="star-rating" class="flex items-center text-3xl cursor-pointer text-gray-300">${[...Array(5)].map((_, i) => `<span class="star" data-value="${i + 1}">&#9734;</span>`).join('')}</div><input type="hidden" name="rating" required></div> <div><label class="block text-sm font-medium">Comentário</label><textarea name="text" rows="4" class="input-field w-full" required></textarea></div> <div class="text-right mt-6"><button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">Enviar</button></div> </form> `; window.modalService.open({ title: 'Enviar Feedback', body: modalBody }); this.setupFeedbackFormListeners(); } setupFeedbackFormListeners() { const form = document.getElementById('feedback-form'); const stars = document.querySelectorAll('.star'); const ratingInput = form.elements.rating; stars.forEach(star => { star.addEventListener('click', (e) => { const value = e.target.dataset.value; ratingInput.value = value; stars.forEach(s => { s.innerHTML = s.dataset.value <= value ? '&#9733;' : '&#9734;'; s.style.color = s.dataset.value <= value ? 'orange' : 'lightgray'; }); }); }); document.getElementById('scan-qr-btn').addEventListener('click', () => this.startScanner()); form.onsubmit = async (e) => { e.preventDefault(); const formData = new FormData(form); const leaderId = parseInt(formData.get('leaderId')); const employeeId = formData.get('employeeId'); const lastFeedback = await db.feedbacks.where({ leaderId, employeeId }).last(); if (lastFeedback) { const daysSinceLast = (Date.now() - lastFeedback.date) / (1000 * 60 * 60 * 24); if (daysSinceLast < this.COOLDOWN_DAYS) { const body = document.createElement('div'); body.innerText = `Você já avaliou este líder nos últimos ${this.COOLDOWN_DAYS} dias. Por favor, aguarde.`; window.modalService.open({title: "Cooldown", body: body }); return; } } const data = { leaderId, employeeId, rating: parseInt(ratingInput.value), text: formData.get('text'), date: Date.now() }; await window.dbService.addFeedback(data); window.modalService.close(); }; } startScanner() { const qrReaderElement = document.getElementById('qr-reader'); qrReaderElement.style.display = 'block'; const html5QrCode = new Html5Qrcode("qr-reader"); const qrCodeSuccessCallback = (decodedText, decodedResult) => { document.querySelector('[name="employeeId"]').value = decodedText; html5QrCode.stop().then(() => { qrReaderElement.style.display = 'none'; }); }; const config = { fps: 10, qrbox: { width: 250, height: 250 } }; html5QrCode.start({ facingMode: "environment" }, config, qrCodeSuccessCallback); } }
+            async openFeedbackModal() { const leaders = await this.uiController.dbService.getAll('leaders'); const modalBody = document.createElement('div'); modalBody.innerHTML = ` <form id="feedback-form" class="space-y-4"> <div><label class="block text-sm font-medium">Selecione o Líder</label><select name="leaderId" class="input-field w-full" required><option value="">-- Escolha um líder --</option>${leaders.map(l => `<option value="${l.id}">${l.name}</option>`).join('')}</select></div> <div><label class="block text-sm font-medium">Sua Matrícula</label><div class="flex items-center"><input type="text" name="employeeId" class="input-field flex-grow" required><button type="button" id="scan-qr-btn" class="ml-2 mt-1 p-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg></button></div><div id="qr-reader" class="mt-2" style="width:100%"></div></div> <div><label class="block text-sm font-medium">Avaliação</label><div id="star-rating" class="flex items-center text-3xl cursor-pointer text-gray-300">${[...Array(5)].map((_, i) => `<span class="star" data-value="${i + 1}">&#9734;</span>`).join('')}</div><input type="hidden" name="rating" required></div> <div><label class="block text-sm font-medium">Comentário</label><textarea name="text" rows="4" class="input-field w-full" required></textarea></div> <div class="text-right mt-6"><button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">Enviar</button></div> </form> `; this.uiController.modalService.open({ title: 'Enviar Feedback', body: modalBody }); this.setupFeedbackFormListeners(); }
+            setupFeedbackFormListeners() {
+                const form = document.getElementById('feedback-form');
+                const stars = document.querySelectorAll('.star');
+                const ratingInput = form.elements.rating;
+                stars.forEach(star => { star.addEventListener('click', (e) => { const value = e.target.dataset.value; ratingInput.value = value; stars.forEach(s => { s.innerHTML = s.dataset.value <= value ? '&#9733;' : '&#9734;'; s.style.color = s.dataset.value <= value ? 'orange' : 'lightgray'; }); }); });
+                document.getElementById('scan-qr-btn').addEventListener('click', () => this.startScanner());
+                form.onsubmit = async (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(form);
+                    const leaderId = parseInt(formData.get('leaderId'));
+                    const employeeId = formData.get('employeeId');
+                    const lastFeedback = await this.uiController.dbService.db.feedbacks.where({ leaderId, employeeId }).last();
+                    if (lastFeedback) {
+                        const daysSinceLast = (Date.now() - new Date(lastFeedback.date).getTime()) / (1000 * 60 * 60 * 24);
+                        if (daysSinceLast < this.COOLDOWN_DAYS) {
+                            const body = document.createElement('div');
+                            body.innerText = `Você já avaliou este líder nos últimos ${this.COOLDOWN_DAYS} dias. Por favor, aguarde.`;
+                            this.uiController.modalService.open({title: "Cooldown", body: body });
+                            return;
+                        }
+                    }
+                    const data = { leaderId, employeeId, rating: parseInt(ratingInput.value), text: formData.get('text'), date: new Date().toISOString() };
+                    await this.uiController.dbService.addFeedback(data);
+                    this.uiController.modalService.close();
+                };
+            }
+            startScanner() { const qrReaderElement = document.getElementById('qr-reader'); qrReaderElement.style.display = 'block'; const html5QrCode = new Html5Qrcode("qr-reader"); const qrCodeSuccessCallback = (decodedText, decodedResult) => { document.querySelector('[name="employeeId"]').value = decodedText; html5QrCode.stop().then(() => { qrReaderElement.style.display = 'none'; }); }; const config = { fps: 10, qrbox: { width: 250, height: 250 } }; html5QrCode.start({ facingMode: "environment" }, config, qrCodeSuccessCallback); }
+        }
 
-        class AnalysisView { constructor() { this.periodInDays = 30; this.chart = null; } async render(container) { container.innerHTML = this.getTemplate(); await this.renderData(); this.attachEventListeners(); } getTemplate() { return ` <div class="flex justify-between items-center mb-6"><h2 class="text-3xl font-bold text-gray-800">Análise de Performance</h2><div id="analysis-period-filter" class="flex items-center space-x-2"><button data-period="7" class="period-btn">7 dias</button><button data-period="15" class="period-btn">15 dias</button><button data-period="30" class="period-btn active">30 dias</button><button data-period="365" class="period-btn">Último Ano</button></div></div> <div class="bg-white rounded-lg shadow-lg p-6 mb-6"><canvas id="comparative-performance-chart"></canvas></div> <div class="bg-white rounded-lg shadow-lg p-6"><h3 class="text-xl font-bold mb-4">Ranking de Performance</h3><ul id="performance-ranking-list" class="space-y-3"></ul></div> `; } async renderData() { const cutoffDate = Date.now() - this.periodInDays * 24 * 60 * 60 * 1000; const collaborators = await window.dbService.getAll('collaborators'); const leaders = await window.dbService.getAll('leaders'); const allPersonnel = [...collaborators.map(c => ({...c, type: 'Colaborador'})), ...leaders.map(l => ({...l, type: 'Líder', leaderId: l.id }))]; const performanceData = allPersonnel.map(person => { const recentPerformances = (person.performanceHistory || []).filter(p => p.date >= cutoffDate); const averageScore = recentPerformances.length > 0 ? recentPerformances.reduce((acc, p) => acc + p.score, 0) / recentPerformances.length : 0; return { ...person, averageScore }; }).filter(p => p.averageScore > 0).sort((a, b) => b.averageScore - a.averageScore); this.renderChart(performanceData, leaders); this.renderRankingList(performanceData); } renderChart(data, leaders) { const ctx = document.getElementById('comparative-performance-chart')?.getContext('2d'); if (!ctx) return; const leaderColors = leaders.reduce((acc, leader, index) => { acc[leader.id] = `hsl(${index * 60}, 70%, 60%)`; return acc; }, {}); if (this.chart) this.chart.destroy(); this.chart = new Chart(ctx, { type: 'bar', data: { labels: data.map(p => p.name), datasets: [{ label: `Média (Últimos ${this.periodInDays} dias)`, data: data.map(p => p.averageScore.toFixed(2)), backgroundColor: data.map(p => leaderColors[p.leaderId] || '#9ca3af'), }] }, options: { indexAxis: 'y', scales: { x: { beginAtZero: true, max: 10 } }, plugins: { legend: { display: false } } } }); } renderRankingList(data) { const listContainer = document.getElementById('performance-ranking-list'); listContainer.innerHTML = data.length === 0 ? '<p class="text-center text-gray-500">Nenhum dado no período.</p>' : data.map((person, index) => ` <li class="flex items-center p-3 bg-gray-50 rounded-lg"><span class="font-bold text-lg text-gray-500 w-8">${index + 1}</span><img src="${person.photoUrl || 'https://i.pravatar.cc/40?u=' + person.matricula}" alt="${person.name}" class="w-10 h-10 rounded-full mr-4"><div><p class="font-semibold text-gray-800">${person.name}</p><p class="text-sm text-gray-600">${person.role}</p></div><span class="ml-auto text-lg font-bold text-blue-600">${person.averageScore.toFixed(2)}</span></li> `).join(''); } attachEventListeners() { document.querySelectorAll('.period-btn').forEach(btn => { btn.addEventListener('click', (e) => { this.periodInDays = parseInt(e.target.dataset.period); document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active')); e.target.classList.add('active'); this.renderData(); }); btn.classList.add('px-3', 'py-1', 'rounded-md', 'text-sm', 'font-medium', 'transition-colors'); if (!btn.classList.contains('active')) { btn.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300'); } else { btn.classList.add('bg-blue-600', 'text-white'); } }); } }
+        class AnalysisView {
+            constructor(uiController) {
+                this.uiController = uiController;
+                this.periodInDays = 30;
+                this.chart = null;
+            }
+            async render(container) {
+                container.innerHTML = this.getTemplate();
+                await this.renderData();
+                this.attachEventListeners();
+            }
+            getTemplate() { return ` <div class="flex justify-between items-center mb-6"><h2 class="text-3xl font-bold text-gray-800">Análise de Performance</h2><div id="analysis-period-filter" class="flex items-center space-x-2"><button data-period="7" class="period-btn">7 dias</button><button data-period="15" class="period-btn">15 dias</button><button data-period="30" class="period-btn active">30 dias</button><button data-period="365" class="period-btn">Último Ano</button></div></div> <div class="bg-white rounded-lg shadow-lg p-6 mb-6"><canvas id="comparative-performance-chart"></canvas></div> <div class="bg-white rounded-lg shadow-lg p-6"><h3 class="text-xl font-bold mb-4">Ranking de Performance</h3><ul id="performance-ranking-list" class="space-y-3"></ul></div> `; }
+            async renderData() {
+                const cutoffDate = new Date(Date.now() - this.periodInDays * 24 * 60 * 60 * 1000);
+                const collaborators = await this.uiController.dbService.getAll('collaborators');
+                const leaders = await this.uiController.dbService.getAll('leaders');
+                const allPersonnel = [...collaborators.map(c => ({...c, type: 'Colaborador'})), ...leaders.map(l => ({...l, type: 'Líder', leaderId: l.id }))];
+                const performanceData = allPersonnel.map(person => {
+                    const recentPerformances = (person.performanceHistory || []).filter(p => new Date(p.date) >= cutoffDate);
+                    const averageScore = recentPerformances.length > 0 ? recentPerformances.reduce((acc, p) => acc + p.score, 0) / recentPerformances.length : 0;
+                    return { ...person, averageScore };
+                }).filter(p => p.averageScore > 0).sort((a, b) => b.averageScore - a.averageScore);
+                this.renderChart(performanceData, leaders);
+                this.renderRankingList(performanceData);
+            }
+            renderChart(data, leaders) {
+                const ctx = document.getElementById('comparative-performance-chart')?.getContext('2d');
+                if (!ctx) return;
+                const leaderColors = leaders.reduce((acc, leader, index) => { acc[leader.id] = `hsl(${index * 60}, 70%, 60%)`; return acc; }, {});
+                if (this.chart) this.chart.destroy();
+                this.chart = new Chart(ctx, { type: 'bar', data: { labels: data.map(p => p.name), datasets: [{ label: `Média (Últimos ${this.periodInDays} dias)`, data: data.map(p => p.averageScore.toFixed(2)), backgroundColor: data.map(p => leaderColors[p.leaderId] || '#9ca3af'), }] }, options: { indexAxis: 'y', scales: { x: { beginAtZero: true, max: 10 } }, plugins: { legend: { display: false } } } });
+            }
+            renderRankingList(data) {
+                const listContainer = document.getElementById('performance-ranking-list');
+                listContainer.innerHTML = data.length === 0 ? '<p class="text-center text-gray-500">Nenhum dado no período.</p>' : data.map((person, index) => ` <li class="flex items-center p-3 bg-gray-50 rounded-lg"><span class="font-bold text-lg text-gray-500 w-8">${index + 1}</span><img src="${person.photoUrl || 'https://i.pravatar.cc/40?u=' + person.matricula}" alt="${person.name}" class="w-10 h-10 rounded-full mr-4"><div><p class="font-semibold text-gray-800">${person.name}</p><p class="text-sm text-gray-600">${person.role}</p></div><span class="ml-auto text-lg font-bold text-blue-600">${person.averageScore.toFixed(2)}</span></li> `).join('');
+            }
+            attachEventListeners() {
+                document.querySelectorAll('.period-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        this.periodInDays = parseInt(e.target.dataset.period);
+                        document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+                        e.target.classList.add('active');
+                        this.renderData();
+                    });
+                    btn.classList.add('px-3', 'py-1', 'rounded-md', 'text-sm', 'font-medium', 'transition-colors');
+                    if (!btn.classList.contains('active')) {
+                        btn.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
+                    } else {
+                        btn.classList.add('bg-blue-600', 'text-white');
+                    }
+                });
+            }
+        }
 
         class UIController {
-            constructor(mainContentId, navSelector) {
-                this.mainContent = document.getElementById(mainContentId);
-                this.navLinks = document.querySelectorAll(navSelector);
+            constructor(dbService, modalService) {
+                this.dbService = dbService;
+                this.modalService = modalService;
+                this.mainContent = document.getElementById('main-content');
+                this.navLinks = document.querySelectorAll('.nav-link');
                 this.currentView = 'dashboard';
                 this.viewInstances = {
-                    dashboard: new DashboardView(),
-                    strategies: new StrategiesView(),
-                    team: new TeamView(),
-                    feedbacks: new FeedbacksView(),
-                    analysis: new AnalysisView()
+                    dashboard: new DashboardView(this),
+                    strategies: new StrategiesView(this),
+                    team: new TeamView(this),
+                    feedbacks: new FeedbacksView(this),
+                    analysis: new AnalysisView(this)
                 };
                 this.initNavEvents();
                 this.renderCurrentView();
             }
 
+            changeView(view, params = {}) {
+                if (view && this.viewInstances[view]) {
+                    this.currentView = view;
+                    this.renderCurrentView(params);
+                }
+            }
+
             initNavEvents() {
                 this.navLinks.forEach(link => {
                     link.addEventListener('click', (e) => {
-                        const view = e.target.dataset.view;
-                        if (view && this.viewInstances[view]) {
-                            this.currentView = view;
-                            this.renderCurrentView();
-                        }
+                        this.changeView(e.target.dataset.view);
                     });
                 });
-                db.on('changes', () => {
+                this.dbService.db.on('changes', () => {
                     if (this.viewInstances[this.currentView]) {
-                        this.viewInstances[this.currentView].render(this.mainContent);
+                        this.renderCurrentView();
                     }
                 });
             }
@@ -808,17 +988,18 @@
                     this.mainContent.innerHTML = `<h2>Página não encontrada</h2>`;
                 }
                 const firstChild = this.mainContent.firstChild;
-                if (firstChild && firstChild.nodeType === 1) { // Check if it's an element
+                if (firstChild && firstChild.nodeType === 1) {
                     firstChild.classList.add('fade-in');
                 }
             }
         }
 
-        window.dbService = new DBService();
-        window.modalService = new ModalService();
-        window.uiController = new UIController('main-content', '.nav-link');
+        const dbInstance = new LocalDB();
+        const dbService = new DBService(dbInstance);
+        const modalService = new ModalService();
+        new UIController(dbService, modalService);
 
-        document.getElementById('export-btn').addEventListener('click', () => window.dbService.exportData());
+        document.getElementById('export-btn').addEventListener('click', () => dbService.exportData());
 
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
@@ -828,7 +1009,7 @@
             const file = e.target.files[0];
             if (file) {
                 const reader = new FileReader();
-                reader.onload = (event) => window.dbService.importData(event.target.result);
+                reader.onload = (event) => dbService.importData(event.target.result);
                 reader.readAsText(file);
             }
         };
